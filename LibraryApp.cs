@@ -50,7 +50,7 @@ class LibraryApp
         File.WriteAllText(LoansFile, JsonSerializer.Serialize(loans, jsonOptions));
 
         // per visualizzare la directory di salvataggio dei dati .json
-        Console.WriteLine($"Salvataggio in: {Directory.GetCurrentDirectory()}");
+        //Console.WriteLine($"Salvataggio in: {Directory.GetCurrentDirectory()}");
 
     }
 
@@ -72,6 +72,9 @@ class LibraryApp
                 case "4": ShowUsers(); break;
                 case "5": AddLoan(); break;
                 case "6": ShowLoans(); break;
+                case "7": ReturnLoan(); break;
+                case "8": ShowOverdueLoans(); break;
+
                 case "0":
                     SaveData();
                     running = false;
@@ -92,8 +95,22 @@ class LibraryApp
         Console.WriteLine("4 - Mostra utenti");
         Console.WriteLine("5 - Effettua prestito");
         Console.WriteLine("6 - Mostra prestiti");
+        Console.WriteLine("7 - Restituisci libro");
+        Console.WriteLine("8 - Mostra prestiti scaduti");
         Console.WriteLine("0 - Esci");
         Console.Write("Scelta: ");
+    }
+
+    // funzioni per trovate Book e User dall'Id, con controlli a monte per eventuali null
+    private Book GetBookById(Guid id)
+    {
+        return books.Find(b => b.Id == id)
+            ?? throw new InvalidOperationException("Libro non trovato.");
+    }
+    private User GetUserById(Guid id)
+    {
+        return users.Find(u => u.Id == id)
+            ?? throw new InvalidOperationException("Utente non trovato.");
     }
 
     private void AddBook()
@@ -110,7 +127,7 @@ class LibraryApp
         book.PublicationYear = int.Parse(Console.ReadLine() ?? "0");
 
         books.Add(book);
-        Console.WriteLine("Libro aggiunto!");
+        Console.WriteLine("Libro aggiunto.");
     }
 
     private void ShowBooks()
@@ -127,7 +144,7 @@ class LibraryApp
         }
     }
 
-        private void AddUser()
+    private void AddUser()
     {
         User user = new User();
 
@@ -138,7 +155,7 @@ class LibraryApp
         user.Surname = Console.ReadLine() ?? "";
 
         users.Add(user);
-        Console.WriteLine("Utente aggiunto!");
+        Console.WriteLine("Utente aggiunto.");
     }
 
     private void ShowUsers()
@@ -155,7 +172,7 @@ class LibraryApp
         }
     }
 
-        private void AddLoan()
+    private void AddLoan()
     {
         if (books.Count == 0 || users.Count == 0)
         {
@@ -163,47 +180,141 @@ class LibraryApp
             return;
         }
 
+        // Lista libri prestabili: selezione dei soli libri disponibili
+        List<Book> availableBooks = books
+            .Where(b => !loans.Any(l => l.BookId == b.Id && !l.IsReturned))
+            .ToList();
+
+        if (availableBooks.Count == 0)
+        {
+            Console.WriteLine("Nessun libro disponibile per il prestito.");
+            return;
+        }
+
+        // Selezione libro
         Console.WriteLine("Seleziona libro:");
-        for (int i = 0; i < books.Count; i++)
-            Console.WriteLine($"{i} - {books[i].Title}");
+        for (int i = 0; i < availableBooks.Count; i++)
+            Console.WriteLine($"{i} - {availableBooks[i].Title}");
 
-        int bookIndex = int.Parse(Console.ReadLine() ?? "0");
+        if (!int.TryParse(Console.ReadLine(), out int bookIndex) ||
+            bookIndex < 0 || bookIndex >= availableBooks.Count)
+        {
+            Console.WriteLine("Selezione non valida.");
+            return;
+        }
 
+        // Selezione utente
         Console.WriteLine("Seleziona utente:");
         for (int i = 0; i < users.Count; i++)
             Console.WriteLine($"{i} - {users[i].Name} {users[i].Surname}");
 
-        int userIndex = int.Parse(Console.ReadLine() ?? "0");
+        if (!int.TryParse(Console.ReadLine(), out int userIndex) ||
+            userIndex < 0 || userIndex >= users.Count)
+        {
+            Console.WriteLine("Selezione non valida.");
+            return;
+        }
 
+        // Creazione prestito
         Loan loan = new Loan
         {
-            BookId = books[bookIndex].Id,
+            BookId = availableBooks[bookIndex].Id,
             UserId = users[userIndex].Id,
             DueDate = DateTime.Now.AddDays(14)
         };
 
         loans.Add(loan);
-        Console.WriteLine("Prestito registrato!");
+        SaveData();
+
+        Console.WriteLine("Prestito registrato.");
     }
 
     private void ShowLoans()
     {
-        if (loans.Count == 0)
+        List<Loan> currentLoans = loans
+            .Where(l => !l.IsReturned)
+            .ToList();
+
+        if (currentLoans.Count == 0)
         {
             Console.WriteLine("Nessun prestito presente.");
             return;
         }
 
-        foreach (Loan l in loans)
+        foreach (Loan l in currentLoans)
         {
-            // uso i ! perché so che non posso trovare valori null per come ho dichiarato loans
-            Book b = books.Find(x => x.Id == l.BookId)!;
-            User u = users.Find(x => x.Id == l.UserId)!;
+            Book b = GetBookById(l.BookId);
+            User u = GetUserById(l.UserId);
 
             Console.WriteLine($"{b.Title} → {u.Name} {u.Surname} (scadenza {l.DueDate:d})");
         }
     }
+
+    private void ReturnLoan()
+    {
+        // Lista prestiti attivi
+        List<Loan> currentLoans = loans
+            .Where(l => !l.IsReturned)
+            .ToList();
+
+        if (currentLoans.Count == 0)
+        {
+            Console.WriteLine("Nessun prestito attivo al momento.");
+            return;
+        }
+
+        // Selezione prestito
+        Console.WriteLine("Seleziona prestito:");
+        for (int i = 0; i < currentLoans.Count; i++)
+        {
+            Loan l = currentLoans[i];
+            Book b = GetBookById(l.BookId);
+            User u = GetUserById(l.UserId);
+
+            Console.WriteLine($"{i} - {b.Title} → {u.Name} {u.Surname} (scadenza {l.DueDate:d})");
+        }
+
+        if (!int.TryParse(Console.ReadLine(), out int loanIndex) ||
+            loanIndex < 0 || loanIndex >= currentLoans.Count)
+        {
+            Console.WriteLine("Selezione non valida.");
+            return;
+        }
+
+        // Chiudi il prestito
+        currentLoans[loanIndex].IsReturned = true;
+        SaveData();
+        Console.WriteLine("Libro restituito correttamente.");
+    }
+
+    private void ShowOverdueLoans()
+    {
+        List<Loan> overdueLoans = loans
+            .Where(l => !l.IsReturned && l.DueDate < DateTime.Now)
+            .ToList();
+
+        if (overdueLoans.Count == 0)
+        {
+            Console.WriteLine("Nessun prestito scaduto.");
+            return;
+        }
+
+        Console.WriteLine("Prestiti scaduti:");
+
+        foreach (Loan l in overdueLoans)
+        {
+            Book b = GetBookById(l.BookId);
+            User u = GetUserById(l.UserId);
+
+            int daysLate = (DateTime.Now - l.DueDate).Days;
+
+            Console.WriteLine
+            (
+                $"{b.Title} → {u.Name} {u.Surname} | " +
+                $"scaduto da {daysLate} giorni (scadenza {l.DueDate:d})"
+            );
+        }
+    }
+
 }
-
-
 
